@@ -5,6 +5,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+design-app = []
+
 [dependencies]
 desigma-doc.workspace = true
 desigma-fig.workspace = true

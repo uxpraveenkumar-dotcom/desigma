@@ -52,7 +52,7 @@ struct Discovery {
 
 /// Where the discovery file lives: the per-user runtime dir on Linux, else the local data dir.
 pub fn default_dir() -> PathBuf {
-    dirs::runtime_dir().or_else(dirs::data_local_dir).unwrap_or_else(std::env::temp_dir).join("desigma")
+    dirs::runtime_dir().or_else(dirs::data_local_dir).unwrap_or_else(std::env::temp_dir).join(desigma_library::APP_DATA_DIR)
 }
 
 /// A `desigma://join/...` link without control characters and of a sane length.

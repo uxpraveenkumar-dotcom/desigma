@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 const MAX_LOG_BYTES: u64 = 512 * 1024;
 
 pub fn log_path() -> PathBuf {
-    dirs::data_local_dir().unwrap_or_else(std::env::temp_dir).join("desigma").join("crash.log")
+    dirs::data_local_dir().unwrap_or_else(std::env::temp_dir).join(desigma_library::APP_DATA_DIR).join("crash.log")
 }
 
 /// Chains a hook that writes the report before the default one prints it.
