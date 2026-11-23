@@ -11,6 +11,7 @@ pub(crate) mod session;
 mod sidebar;
 pub mod thumb;
 pub mod time;
+mod navigation;
 
 pub use dialog::{Dialog, Intent};
 pub(crate) use session::doc_hash;
@@ -27,6 +28,7 @@ pub const GITHUB_URL: &str = "https://github.com/deepfounder-ai/desigma";
 #[derive(Clone, Debug, PartialEq)]
 pub enum Section {
     Recents,
+    Projects,
     Starred,
     /// A project, optionally narrowed to one folder.
     Project(String, Option<String>),
@@ -88,6 +90,8 @@ impl Snapshot {
 
 pub struct Home {
     pub section: Section,
+    back: Vec<Section>,
+    forward: Vec<Section>,
     pub view: ViewMode,
     pub sort: Sort,
     pub search: String,
@@ -99,6 +103,7 @@ pub struct Home {
     pub selected: Option<String>,
     pub menu: Option<(Target, Pos2)>,
     pub sort_menu: Option<Rect>,
+    pub organization_menu: Option<Rect>,
     /// File being dragged: (id, name).
     pub drag: Option<(String, String)>,
     /// Drop zones drawn this frame.
@@ -120,6 +125,8 @@ impl Home {
     pub fn new() -> Self {
         Self {
             section: Section::Recents,
+            back: Vec::new(),
+            forward: Vec::new(),
             view: ViewMode::Grid,
             sort: Sort::LastOpened,
             search: String::new(),
@@ -129,6 +136,7 @@ impl Home {
             selected: None,
             menu: None,
             sort_menu: None,
+            organization_menu: None,
             drag: None,
             drop_rects: vec![],
             scroll: 0.0,
@@ -143,15 +151,16 @@ impl Home {
         let files = projects.iter().flat_map(|p| lib.files_in(&p.id, None).unwrap_or_default()).collect();
         self.snap = Snapshot { projects, files, trash: lib.list_trash() };
         self.dirty = false;
-        // A section pointing at something that no longer exists falls back to Recents.
-        if let Section::Project(p, f) = &self.section {
-            let gone = match self.snap.projects.iter().find(|x| &x.id == p) {
-                None => true,
-                Some(pr) => f.as_ref().is_some_and(|f| !pr.folders.iter().any(|x| &x.id == f)),
-            };
-            if gone {
-                self.section = Section::Recents;
-            }
+        let exists = |section: &Section| match section {
+            Section::Project(id, folder) => self.snap.projects.iter().any(|project| {
+                &project.id == id && folder.as_ref().is_none_or(|id| project.folders.iter().any(|folder| &folder.id == id))
+            }),
+            _ => true,
+        };
+        self.back.retain(&exists);
+        self.forward.retain(&exists);
+        if !exists(&self.section) {
+            self.section = if cfg!(feature = "design-app") { Section::Projects } else { Section::Recents };
         }
     }
 
@@ -169,7 +178,7 @@ impl Home {
                 Section::Recents => self.snap.files.clone(),
                 Section::Starred => self.snap.files.iter().filter(|f| f.starred).cloned().collect(),
                 Section::Project(p, folder) => self.snap.files.iter().filter(|f| &f.project == p && &f.folder == folder).cloned().collect(),
-                Section::Trash => vec![],
+                Section::Trash | Section::Projects => vec![],
             }
         };
         match self.sort {
@@ -192,12 +201,19 @@ impl Home {
         v
     }
 
+    pub(super) fn folders_title(&self) -> Option<String> {
+        let Section::Project(project, Some(folder)) = &self.section else { return None };
+        self.snap.projects.iter().find(|entry| &entry.id == project)?
+            .folders.iter().find(|entry| &entry.id == folder).map(|entry| entry.name.clone())
+    }
+
     pub fn title(&self) -> String {
         if self.searching() {
             return format!("Results for \u{201c}{}\u{201d}", self.search.trim());
         }
         match &self.section {
             Section::Recents => "Recents".into(),
+            Section::Projects => "Projects".into(),
             Section::Starred => "Starred".into(),
             Section::Trash => "Trash".into(),
             Section::Project(p, _) => self.snap.project_name(p).to_string(),
@@ -213,6 +229,8 @@ impl Home {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Act {
     Go(Section),
+    Back,
+    Forward,
     Open(String),
     OpenWindow(String),
     NewFile,
@@ -220,8 +238,9 @@ pub enum Act {
     Import,
     /// Opens the Join session dialog.
     JoinSession,
-    /// Opens the Claude connection dialog.
-    Mcp,
+    EditProfile,
+    NewOrganization,
+    SwitchOrganization(Option<String>),
     NewProject,
     RenameProject(String),
     DeleteProject(String),
@@ -254,8 +273,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let main = Rect::from_min_max(Pos2::new(side.right(), full.top()), full.max);
     h.drop_rects.clear();
     let mut acts = Vec::new();
-    sidebar::show(&mut h, ui, side, &mut acts);
-    main_view::show(&lib, &mut h, ui, main, &mut acts);
+    let profile = cfg!(feature = "design-app").then(|| app.author());
+    sidebar::show(&mut h, ui, side, &mut acts, app.workspace.as_ref(), profile.as_deref());
+    let organization = app.workspace.as_ref().map(|workspace| {
+        workspace.organizations().iter()
+            .find(|org| Some(org.id.as_str()) == workspace.active())
+            .map_or("Local workspace", |org| org.name.as_str())
+    });
+    main_view::show(&lib, &mut h, ui, main, &mut acts, organization);
     menus(&mut h, ui.ctx(), &mut acts);
     drag_ghost(&mut h, ui, &mut acts);
     // Escape clears the search.
@@ -370,10 +395,14 @@ pub fn apply(app: &mut App, act: Act) {
     match act {
         Act::Go(section) => {
             if let Some(h) = app.home.as_mut() {
-                h.section = section;
-                h.search.clear();
-                h.selected = None;
-                h.scroll = 0.0;
+                h.navigate(section);
+            }
+            changed = false;
+        }
+        Act::Back | Act::Forward => {
+            if let Some(h) = app.home.as_mut() {
+                h.step(matches!(act, Act::Back));
+                h.dirty = true;
             }
             changed = false;
         }
@@ -412,11 +441,6 @@ pub fn apply(app: &mut App, act: Act) {
             app.new_library_board(target);
         }
         Act::JoinSession => app.open_join(None),
-        Act::Mcp => {
-            app.mcp_error = None;
-            app.mcp_dialog = true;
-            changed = false;
-        }
         Act::Import => {
             let paths = rfd::FileDialog::new()
                 .add_filter("Design files", &["fig", "pen", "json", "svg", "desigma"])
@@ -439,6 +463,12 @@ pub fn apply(app: &mut App, act: Act) {
                     app.import_into_library(&paths, &p, f.as_deref());
                 }
             }
+        }
+        Act::EditProfile => app.ask_author_name(),
+        Act::NewOrganization => app.dialog = Some(Dialog::prompt(Intent::NewOrganization, "New organization", "", "Create")),
+        Act::SwitchOrganization(id) => {
+            app.switch_organization(id);
+            return;
         }
         Act::NewProject => app.dialog = Some(Dialog::prompt(Intent::NewProject, "New project", "", "Create")),
         Act::RenameProject(id) => {

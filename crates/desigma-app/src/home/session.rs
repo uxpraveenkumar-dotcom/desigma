@@ -88,13 +88,28 @@ impl App {
             self.show_toast("The projects library is unavailable", true);
             return;
         };
+        if !self.save_before_tab_change() {
+            return;
+        }
+        self.capture_tab_view();
         crate::decks::ui::flush_notes(self);
         self.save_close_version();
         self.stop_plugin();
         self.flush_autosave();
         self.end_collab();
         self.canvas.reset_interaction();
-        let mut home = Home::new();
+        let previous = if cfg!(feature = "design-app") {
+            self.home.take().or_else(|| self.parked_home.take())
+        } else {
+            None
+        };
+        let has_previous = previous.is_some();
+        let mut home = previous.unwrap_or_default();
+        if self.workspace.is_some() && !has_previous {
+            home.section = self.lib_file.as_ref()
+                .and_then(|file| lib.file(&file.id).ok())
+                .map_or(Section::Projects, |entry| Section::Project(entry.project, entry.folder));
+        }
         home.refresh(&lib);
         self.home = Some(home);
         self.ui.menu = None;
@@ -108,6 +123,10 @@ impl App {
             return;
         }
         let Some(lib) = self.lib.clone() else { return };
+        if !self.save_before_tab_change() {
+            return;
+        }
+        self.capture_tab_view();
         let loaded = lib.file(id).and_then(|e| lib.load_file(id).map(|d| (e, d)));
         let (entry, mut doc) = match loaded {
             Ok(x) => x,
@@ -124,7 +143,15 @@ impl App {
         self.autosave = Autosave { seen_rev: self.canvas.tiles.rev(), saved_hash: doc_hash(&self.doc), ..Default::default() };
         self.history_open_file();
         let _ = lib.mark_opened(id);
-        self.home = None;
+        if cfg!(feature = "design-app") {
+            if self.home.is_some() {
+                self.parked_home = self.home.take();
+            }
+            self.remember_document_tab();
+            self.restore_tab_view(id);
+        } else {
+            self.home = None;
+        }
         self.ui.menu = None;
         if needs_thumb {
             thumb::refresh_in_background(lib, entry.id, self.export_doc().into_owned());
@@ -239,6 +266,17 @@ impl App {
             }
             Err(e) => self.show_toast(e, true),
         }
+    }
+
+    /// Keep the current tab open if a workspace document cannot be saved.
+    fn save_before_tab_change(&mut self) -> bool {
+        if cfg!(feature = "design-app") && self.home.is_none() && self.lib_file.is_some() && self.history.viewing.is_none() {
+            if let Err(error) = self.write_library_file(true) {
+                self.show_toast(error, true);
+                return false;
+            }
+        }
+        true
     }
 
     /// Saves pending edits right away (before leaving the editor or the app).

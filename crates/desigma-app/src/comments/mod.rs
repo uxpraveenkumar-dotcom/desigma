@@ -43,6 +43,7 @@ pub struct MsgMenu {
 
 #[derive(Default)]
 pub struct CommentsState {
+    pub pins_hidden: bool,
     /// The author name (loaded lazily from the settings).
     pub author: Option<String>,
     /// Draw resolved threads on the canvas too.

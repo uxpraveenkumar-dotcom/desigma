@@ -10,6 +10,7 @@ use egui::{Align2, Color32, Context, Id, Key, Modifiers, Order, Pos2, Rect, Sens
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Intent {
+    NewOrganization,
     NewProject,
     RenameProject(String),
     NewFolder(String, Option<String>),
@@ -389,10 +390,15 @@ pub fn finish(app: &mut App, d: Dialog) {
     let choice = d.picked.and_then(|i| d.choices.get(i)).cloned();
     let mut dirty = true;
     let res: desigma_library::Result<()> = match d.intent.clone() {
+        Intent::NewOrganization => {
+            if !app.create_organization(&text) {
+                app.dialog = Some(d);
+            }
+            return;
+        }
         Intent::NewProject => lib.create_project(&text).map(|p| {
             if let Some(h) = app.home.as_mut() {
-                h.section = Section::Project(p.id, None);
-                h.search.clear();
+                h.navigate(Section::Project(p.id, None));
             }
         }),
         Intent::RenameProject(id) => lib.rename_project(&id, &text).map(|_| {
@@ -403,7 +409,7 @@ pub fn finish(app: &mut App, d: Dialog) {
         Intent::NewFolder(p, parent) => lib.create_folder(&p, parent.as_deref(), &text).map(|f| {
             if let Some(h) = app.home.as_mut() {
                 h.collapsed.remove(&p);
-                h.section = Section::Project(p, Some(f.id));
+                h.navigate(Section::Project(p, Some(f.id)));
             }
         }),
         Intent::RenameFolder(p, f) => lib.rename_folder(&p, &f, &text),

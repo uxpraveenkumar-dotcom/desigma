@@ -14,7 +14,7 @@ use egui::{CursorIcon, Pos2, Rect, Response, Sense, Ui};
 /// Canvas click with the Comment tool: starts a new thread at the clicked point,
 /// anchored to the node under the cursor.
 pub fn process(app: &mut App, rect: Rect, resp: &Response) {
-    if app.tool != Tool::Comment || app.history.viewing.is_some() || !resp.clicked_by(egui::PointerButton::Primary) {
+    if app.comments.pins_hidden || app.tool != Tool::Comment || app.history.viewing.is_some() || !resp.clicked_by(egui::PointerButton::Primary) {
         return;
     }
     if std::mem::take(&mut app.comments.swallow_click) {
@@ -42,6 +42,10 @@ struct PinView {
 }
 
 pub fn overlay(app: &mut App, ui: &mut Ui, rect: Rect) {
+    if app.comments.pins_hidden {
+        app.comments.pin_rects.clear();
+        return;
+    }
     let ctx = ui.ctx().clone();
     let comment_tool = app.tool == Tool::Comment;
     if !comment_tool {

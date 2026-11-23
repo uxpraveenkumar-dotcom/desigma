@@ -22,6 +22,8 @@ mod find;
 mod fonts;
 mod history;
 mod home;
+mod desktop;
+mod workspace;
 mod i18n;
 mod icons;
 mod instance;
@@ -33,7 +35,6 @@ mod lint;
 mod loopback;
 #[cfg(target_os = "macos")]
 mod macos;
-mod mcp_link;
 mod motion;
 mod ops;
 mod panels;

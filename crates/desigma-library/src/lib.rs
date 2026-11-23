@@ -18,6 +18,7 @@
 //! (version history). Each adds `impl Library` blocks in its own file.
 
 pub mod access;
+pub mod workspace;
 mod publish;
 mod store;
 mod versions;
