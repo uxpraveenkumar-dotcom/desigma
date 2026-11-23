@@ -870,6 +870,11 @@ fn on_double_click(app: &mut App, rect: ERect, inp: &Inp) {
     if app.tool != Tool::Move {
         return;
     }
+    if let Some(id) = label_hit(app, rect, pos) {
+        if super::frame_rename::begin(app, id) {
+            return;
+        }
+    }
     if let Some(id) = hit_under(app, page, true) {
         let is_text = matches!(app.doc.get(id).map(|n| &n.kind), Some(NodeKind::Text(_)));
         let board_kind = app.doc.get(id).map(|n| &n.kind);

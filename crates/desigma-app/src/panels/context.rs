@@ -40,6 +40,12 @@ fn select_submenu(has: bool) -> Entry {
 /// Entries given the current selection.
 fn entries(app: &App) -> Vec<Entry> {
     let has = !app.selection.is_empty();
+    if cfg!(feature = "design-app") && !has {
+        return canvas_entries(app);
+    }
+    if cfg!(feature = "design-app") && matches!(app.selection.as_slice(), [id] if app.doc.get(*id).is_some_and(|node| matches!(node.kind, NodeKind::Frame(_)))) {
+        return frame_entries(app);
+    }
     let insts = app.selected_instances();
     let has_inst = !insts.is_empty();
     let any_container =
@@ -76,6 +82,58 @@ fn entries(app: &App) -> Vec<Entry> {
     list
 }
 
+fn canvas_entries(app: &App) -> Vec<Entry> {
+    let sidebar = if cfg!(target_os = "macos") { "⌘\\" } else { "Ctrl+\\" };
+    let actions = if cfg!(target_os = "macos") { "⌘K" } else { "Ctrl+K" };
+    vec![
+        leaf(MenuItem::new("Paste here").disabled(app.read_only()).sep(), Action::PasteHere),
+        leaf(MenuItem::new("Show / Hide sidebar").shortcut(sidebar), Action::ToggleSidebar),
+        leaf(MenuItem::new("Show / Hide comments").shortcut("Shift+C").checked(!app.comments.pins_hidden).sep(), Action::ToggleCommentPins),
+        leaf(MenuItem::new("Actions…").shortcut(actions), Action::OpenPalette),
+        leaf(MenuItem::new("Plugins"), Action::Plugins),
+    ]
+}
+
+/// Project-editor frame actions, grouped by workflow.
+fn frame_entries(app: &App) -> Vec<Entry> {
+    let read_only = app.read_only();
+    let command = |mac, other| if cfg!(target_os = "macos") { mac } else { other };
+    let copy_formats = super::export::COPY_ITEMS.iter()
+        .map(|(kind, label)| (MenuItem::new(*label), Action::CopyFormat(*kind)))
+        .collect();
+    let pages: Vec<_> = app.doc.pages.iter().copied()
+        .filter(|id| *id != app.page)
+        .filter_map(|id| app.doc.get(id).map(|page| (MenuItem::new(page.name.as_str()), Action::MoveToPage(id))))
+        .collect();
+    let can_move = !read_only && !pages.is_empty();
+    let edit = |label, action| leaf(MenuItem::new(label).disabled(read_only), action);
+    let shortcut = |label, key, action| leaf(MenuItem::new(label).shortcut(key).disabled(read_only), action);
+    vec![
+        leaf(MenuItem::new("Copy").shortcut(command("⌘C", "Ctrl+C")), Action::Copy),
+        shortcut("Paste", command("⌘V", "Ctrl+V"), Action::Paste),
+        Entry { item: MenuItem::new("Copy as"), act: None, kids: copy_formats },
+        leaf(MenuItem::new("Open motion timeline").sep(), Action::OpenMotion),
+        Entry { item: MenuItem::new("Move to page").disabled(!can_move), act: None, kids: pages },
+        shortcut("Bring to front", command("⇧⌘]", "Ctrl+Shift+]"), Action::BringToFront),
+        leaf(MenuItem::new("Send to back").shortcut(command("⇧⌘[", "Ctrl+Shift+[")).disabled(read_only).sep(), Action::SendToBack),
+        shortcut("Group selection", command("⌘G", "Ctrl+G"), Action::Group),
+        shortcut("Frame selection", command("⌥⌘G", "Ctrl+Alt+G"), Action::FrameSelection),
+        edit("Ungroup", Action::Ungroup),
+        edit("Flatten", Action::Flatten),
+        edit("Outline stroke", Action::OutlineStroke),
+        leaf(MenuItem::new("Use as mask").disabled(read_only).sep(), Action::UseAsMask),
+        shortcut("Add / remove auto layout", "Shift+A", Action::AutoLayout),
+        edit("Create component", Action::CreateComponent),
+        leaf(MenuItem::new("Plugins").sep(), Action::Plugins),
+        edit("Show / Hide", Action::ShowHide),
+        leaf(MenuItem::new("Lock / Unlock").disabled(read_only).sep(), Action::LockUnlock),
+        edit("Flip horizontal", Action::Flip(true)),
+        edit("Flip vertical", Action::Flip(false)),
+        edit("Duplicate", Action::Duplicate),
+        edit("Delete", Action::Delete),
+    ]
+}
+
 /// The action behind an index path of the open menu.
 fn resolve(entries: &[Entry], path: &[usize]) -> Option<Action> {
     let e = entries.get(*path.first()?)?;
@@ -100,7 +158,11 @@ pub fn show(app: &mut App, ctx: &Context) {
         TreeResult::Picked(path) => {
             app.ui.ctx_menu = None;
             if let Some(a) = resolve(&entries, &path) {
-                menus::run(app, ctx, a);
+                if a == Action::PasteHere {
+                    crate::clipboard::external::paste_at(app, None, Some(at));
+                } else {
+                    menus::run(app, ctx, a);
+                }
             }
         }
         TreeResult::Closed => app.ui.ctx_menu = None,

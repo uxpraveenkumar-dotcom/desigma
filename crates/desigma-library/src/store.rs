@@ -180,7 +180,7 @@ impl Library {
                 return PathBuf::from(p);
             }
         }
-        dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")).join("desigma").join("library")
+        dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")).join(crate::APP_DATA_DIR).join("library")
     }
 
     fn project_dir(&self, id: &str) -> PathBuf {

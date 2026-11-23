@@ -93,11 +93,16 @@ fn pasting_svg_text_creates_layers_at_the_viewport_center_as_one_undo_step() {
 }
 
 #[test]
-fn pasting_other_text_is_ignored_and_bad_svg_reports_an_error() {
+fn pasting_other_text_and_bad_svg() {
     let mut s = Sim::new();
     let before = s.ids();
     s.frame(vec![Event::Paste("just some words".to_string())]);
-    assert_eq!(s.ids(), before);
+    if cfg!(feature = "design-app") {
+        assert_eq!(s.new_ids(&before).len(), 1);
+    } else {
+        assert_eq!(s.ids(), before);
+    }
+    let before = s.ids();
     s.frame(vec![Event::Paste("<svg xmlns=\"http://www.w3.org/2000/svg\"".to_string())]);
     assert_eq!(s.ids(), before);
     let toast = s.app().toast.as_ref().expect("an error toast");

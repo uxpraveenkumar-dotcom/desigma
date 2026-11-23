@@ -10,7 +10,10 @@ use egui::{Align2, Id, Pos2, Rect, Response, Sense, Ui, Vec2};
 const ROW_H: f32 = 30.0;
 const INDENT: f32 = 16.0;
 
-pub fn show(h: &mut Home, ui: &mut Ui, rect: Rect, acts: &mut Vec<Act>) {
+pub fn show(
+    h: &mut Home, ui: &mut Ui, rect: Rect, acts: &mut Vec<Act>,
+    workspace: Option<&desigma_library::workspace::Workspace>, profile: Option<&str>,
+) {
     let p = ui.painter().clone();
     p.rect_filled(rect, 0.0, theme::BG);
     widgets::vline(&p, rect.right() - theme::BORDER_WIDTH, rect.top(), rect.bottom(), theme::BORDER);
@@ -18,10 +21,22 @@ pub fn show(h: &mut Home, ui: &mut Ui, rect: Rect, acts: &mut Vec<Act>) {
     let w = rect.width() - theme::BORDER_WIDTH;
     let mut y = rect.top();
 
-    // ---- brand
-    icons::paint(&p, Icon::Logo, Pos2::new(x0 + 28.0, y + 28.0), 24.0, theme::ICON);
-    p.text(Pos2::new(x0 + 48.0, y + 28.0), Align2::LEFT_CENTER, "desigma", theme::font_large_strong(), theme::TEXT);
+    if let Some(name) = profile {
+        let profile_rect = Rect::from_min_size(Pos2::new(x0 + 12.0, y + 8.0), Vec2::new(w - 24.0, 40.0));
+        if crate::desktop::profile::show(ui, profile_rect, name) {
+            acts.push(Act::EditProfile);
+        }
+    } else {
+        icons::paint(&p, Icon::Logo, Pos2::new(x0 + 28.0, y + 28.0), 24.0, theme::ICON);
+        p.text(Pos2::new(x0 + 48.0, y + 28.0), Align2::LEFT_CENTER, crate::theme::display_title(), theme::font_large_strong(), theme::TEXT);
+    }
     y += 56.0;
+
+    if let Some(workspace) = workspace {
+        let r = Rect::from_min_size(Pos2::new(x0 + 12.0, y), Vec2::new(w - 24.0, ROW_H));
+        crate::workspace::ui::switcher(workspace, ui, r, &mut h.organization_menu, acts);
+        y += ROW_H + 8.0;
+    }
 
     // ---- search
     let sr = Rect::from_min_size(Pos2::new(x0 + 12.0, y), Vec2::new(w - 24.0, 32.0));
@@ -62,6 +77,12 @@ pub fn show(h: &mut Home, ui: &mut Ui, rect: Rect, acts: &mut Vec<Act>) {
 
     // ---- Projects header
     p.text(Pos2::new(x0 + 20.0, y + 14.0), Align2::LEFT_CENTER, crate::i18n::tr("Projects"), theme::font_body_strong(), theme::TEXT_SECONDARY);
+    if workspace.is_some() {
+        let r = Rect::from_min_size(Pos2::new(x0 + 8.0, y), Vec2::new(w - 48.0, ROW_H));
+        if ui.interact(r, Id::new("home-projects"), Sense::click()).clicked() {
+            acts.push(Act::Go(Section::Projects));
+        }
+    }
     let plus = Rect::from_min_size(Pos2::new(x0 + w - 12.0 - 24.0, y + 2.0), Vec2::splat(24.0));
     if widgets::icon_button(ui, plus, "home-new-project", Icon::Plus, false, "New project").clicked() {
         acts.push(Act::NewProject);
@@ -71,8 +92,7 @@ pub fn show(h: &mut Home, ui: &mut Ui, rect: Rect, acts: &mut Vec<Act>) {
 
     // ---- project tree (scrolls)
     let trash_h = 52.0;
-    let footer_h = trash_h + ROW_H;
-    let list = Rect::from_min_max(Pos2::new(x0, y), Pos2::new(x0 + w, rect.bottom() - footer_h));
+    let list = Rect::from_min_max(Pos2::new(x0, y), Pos2::new(x0 + w, rect.bottom() - trash_h));
     let rows = tree_rows(h);
     let content_h = rows.len() as f32 * ROW_H + 8.0;
     crate::panels::wheel_scroll(ui, list, &mut h.side_scroll, content_h);
@@ -141,11 +161,7 @@ pub fn show(h: &mut Home, ui: &mut Ui, rect: Rect, acts: &mut Vec<Act>) {
         h.menu = secondary;
     }
 
-    // ---- Claude, then trash
-    let cr = Rect::from_min_size(Pos2::new(x0 + 8.0, rect.bottom() - footer_h + 4.0), Vec2::new(w - 16.0, ROW_H));
-    if row(ui, cr, Id::new("home-claude"), Icon::Link, "Claude", 0.0, false, false, "home-claude").clicked() {
-        acts.push(Act::Mcp);
-    }
+    // ---- Trash
     widgets::hline(&p, x0, x0 + w, rect.bottom() - trash_h, theme::BORDER);
     let tr = Rect::from_min_size(Pos2::new(x0 + 8.0, rect.bottom() - trash_h + 10.0), Vec2::new(w - 16.0, ROW_H));
     let n = h.snap.trash.len();

@@ -129,10 +129,6 @@ pub struct App {
     pub libs: crate::libraries::LibrariesState,
     pub plugins: crate::plugins::PluginsState,
     pub bridge: crate::bridge::BridgeState,
-    /// Preferences / home → Claude… connection dialog.
-    pub mcp_dialog: bool,
-    /// Why the last Claude connection attempt failed, shown in the dialog.
-    pub mcp_error: Option<String>,
     pub proto: crate::proto::ProtoState,
     /// Find and replace panel state (Ctrl+F).
     pub find: crate::find::FindState,
@@ -151,10 +147,13 @@ pub struct App {
     pub startup_zoom: Option<f32>,
     /// The projects library (None until opened; tests run without one).
     pub lib: Option<desigma_library::Library>,
+    pub(crate) desktop_tabs: crate::desktop::tabs::Tabs,
+    pub(crate) workspace: Option<desigma_library::workspace::Workspace>,
     /// The library file open in the editor, if any (autosaved, shown in the header).
     pub lib_file: Option<crate::home::LibFile>,
     /// Some while the home screen (file browser) is showing instead of the editor.
     pub home: Option<crate::home::Home>,
+    pub(crate) parked_home: Option<crate::home::Home>,
     /// The open modal dialog (prompts, confirmations, shortcuts, About).
     pub dialog: Option<crate::home::Dialog>,
     pub autosave: crate::home::Autosave,
@@ -209,8 +208,6 @@ impl App {
             libs: Default::default(),
             plugins: Default::default(),
             bridge: Default::default(),
-            mcp_dialog: false,
-            mcp_error: None,
             proto: Default::default(),
             find: Default::default(),
             ui: UiState { pixel_grid: true, ..UiState::default() },
@@ -225,8 +222,11 @@ impl App {
             scrub: None,
             startup_zoom: None,
             lib: None,
+            workspace: None,
+            desktop_tabs: Default::default(),
             lib_file: None,
             home: None,
+            parked_home: None,
             dialog: None,
             autosave: Default::default(),
             renaming_file: false,

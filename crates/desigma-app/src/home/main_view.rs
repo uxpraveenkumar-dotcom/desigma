@@ -16,14 +16,43 @@ enum Kind {
     Danger,
 }
 
-pub fn show(lib: &Library, h: &mut Home, ui: &mut Ui, rect: Rect, acts: &mut Vec<Act>) {
+pub fn show(lib: &Library, h: &mut Home, ui: &mut Ui, rect: Rect, acts: &mut Vec<Act>, organization: Option<&str>) {
     let p = ui.painter().clone();
     let pad = theme::HOME_PAD;
     let trash = h.section == Section::Trash && !h.searching();
+    let projects = h.section == Section::Projects && !h.searching();
 
     // ---- header: title / breadcrumb on the left, buttons on the right
-    let head = Rect::from_min_size(rect.min, Vec2::new(rect.width(), theme::HOME_HEADER_H));
-    breadcrumb(h, ui, &p, Pos2::new(rect.left() + pad, head.center().y), acts);
+    let mut header_top = rect.top();
+    if cfg!(feature = "design-app") {
+        let nav = Pos2::new(rect.left() + pad, rect.top() + 8.0);
+        super::navigation::controls(h, ui, nav, acts);
+        let path_origin = nav + Vec2::new(70.0, 14.0);
+        breadcrumb(h, ui, &p, path_origin, acts, organization, true);
+        header_top += 42.0;
+    }
+    let head = Rect::from_min_size(Pos2::new(rect.left(), header_top), Vec2::new(rect.width(), theme::HOME_HEADER_H));
+    let origin = Pos2::new(rect.left() + pad, head.center().y);
+    if let Some(name) = organization.filter(|_| projects) {
+        let badge = Rect::from_center_size(origin + Vec2::new(16.0, 0.0), Vec2::splat(32.0));
+        p.rect_filled(badge, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+        let initial: String = name.chars().next().into_iter().flat_map(char::to_uppercase).collect();
+        p.text(badge.center(), Align2::CENTER_CENTER, initial, theme::font_body_strong(), theme::TEXT);
+        let label_rect = Rect::from_min_max(Pos2::new(badge.right() + 10.0, head.top()), Pos2::new(head.right() - 160.0, head.bottom()));
+        p.with_clip_rect(label_rect).text(label_rect.left_center(), Align2::LEFT_CENTER, name, theme::font_title(), theme::TEXT);
+    } else if cfg!(feature = "design-app") {
+        let icon = if matches!(h.section, Section::Project(..)) { Icon::Folder } else { Icon::File };
+        let title = if !h.searching() {
+            h.folders_title().unwrap_or_else(|| h.title())
+        } else {
+            h.title()
+        };
+        icons::paint(&p, icon, origin + Vec2::new(14.0, 0.0), 24.0, theme::ICON_SECONDARY);
+        let title_area = Rect::from_min_max(Pos2::new(origin.x + 36.0, head.top()), Pos2::new(head.right() - 390.0, head.bottom()));
+        p.with_clip_rect(title_area).text(title_area.left_center(), Align2::LEFT_CENTER, title, theme::font_title(), theme::TEXT);
+    } else {
+        breadcrumb(h, ui, &p, origin, acts, None, false);
+    }
     let mut right = rect.right() - pad;
     if trash {
         if !h.snap.trash.is_empty() {
@@ -32,15 +61,28 @@ pub fn show(lib: &Library, h: &mut Home, ui: &mut Ui, rect: Rect, acts: &mut Vec
                 acts.push(Act::EmptyTrash);
             }
         }
+    } else if projects {
+        if button(ui, &p, &mut right, head.center().y, "New project", Kind::Primary, "home-create-project").clicked() {
+            acts.push(Act::NewProject);
+        }
     } else {
         let r = button(ui, &p, &mut right, head.center().y, "New design file", Kind::Primary, "home-new-file");
         if r.clicked() {
             acts.push(Act::NewFile);
         }
-        right -= 8.0;
-        let r = button(ui, &p, &mut right, head.center().y, "New board", Kind::Secondary, "home-new-board");
-        if r.clicked() {
-            acts.push(Act::NewBoard);
+        if cfg!(feature = "design-app") {
+            if let Section::Project(project, folder) = &h.section {
+                right -= 8.0;
+                if button(ui, &p, &mut right, head.center().y, "New folder", Kind::Secondary, "home-new-folder").clicked() {
+                    acts.push(Act::NewFolder(project.clone(), folder.clone()));
+                }
+            }
+        } else {
+            right -= 8.0;
+            let r = button(ui, &p, &mut right, head.center().y, "New board", Kind::Secondary, "home-new-board");
+            if r.clicked() {
+                acts.push(Act::NewBoard);
+            }
         }
         right -= 8.0;
         let r = button(ui, &p, &mut right, head.center().y, "Join session", Kind::Secondary, "home-join");
@@ -88,15 +130,20 @@ pub fn show(lib: &Library, h: &mut Home, ui: &mut Ui, rect: Rect, acts: &mut Vec
     let content = Rect::from_min_max(Pos2::new(rect.left(), top), rect.max);
     if trash {
         trash_view(h, ui, content, acts);
+    } else if projects {
+        crate::workspace::projects::show(lib, h, ui, content, acts);
     } else {
         files_view(lib, h, ui, content, acts);
     }
 }
 
 /// Title, or clickable "Project / Folder / ..." path inside a project.
-fn breadcrumb(h: &Home, ui: &mut Ui, p: &egui::Painter, at: Pos2, acts: &mut Vec<Act>) {
-    let font = theme::font_title();
+fn breadcrumb(h: &Home, ui: &mut Ui, p: &egui::Painter, at: Pos2, acts: &mut Vec<Act>, organization: Option<&str>, compact: bool) {
+    let font = if compact { theme::font_body() } else { theme::font_title() };
     let mut segs: Vec<(String, Section)> = vec![];
+    if let Some(name) = organization {
+        segs.push((name.to_owned(), Section::Projects));
+    }
     match &h.section {
         Section::Project(pid, folder) if !h.searching() => {
             segs.push((h.snap.project_name(pid).to_string(), Section::Project(pid.clone(), None)));
@@ -112,6 +159,7 @@ fn breadcrumb(h: &Home, ui: &mut Ui, p: &egui::Painter, at: Pos2, acts: &mut Vec
                 segs.extend(chain);
             }
         }
+        Section::Projects if organization.is_some() && !h.searching() => {}
         _ => segs.push((h.title(), h.section.clone())),
     }
     let mut x = at.x;
@@ -184,6 +232,7 @@ fn empty_state(h: &Home, ui: &Ui, area: Rect) {
         (format!("No files match \u{201c}{}\u{201d}", h.search.trim()), "Try a different name.".to_string())
     } else {
         match &h.section {
+            Section::Projects => ("No projects yet".into(), "Create a project to organize your design files.".into()),
             Section::Recents => ("No files yet".into(), "Create a design file, or import a .fig, .pen, .svg or .desigma file to get started.".into()),
             Section::Starred => ("Nothing starred".into(), "Right-click a file and choose Star to keep it handy here.".into()),
             Section::Project(..) => ("This project is empty".into(), "Create a design file here, or drag files in from other projects.".into()),

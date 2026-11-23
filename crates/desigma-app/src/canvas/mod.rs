@@ -4,6 +4,7 @@
 pub mod builder;
 pub mod create;
 pub mod draw;
+mod frame_rename;
 pub mod gpu;
 pub mod grids;
 pub mod handles;
@@ -137,6 +138,7 @@ pub struct CanvasState {
     pub measures: Vec<snap::Measure>,
     pub pen: Option<PenState>,
     pub text: Option<TextSession>,
+    frame_rename: Option<frame_rename::FrameRename>,
     /// Point editing of a Vector node.
     pub vedit: Option<vector::VectorEdit>,
     /// The shape builder session.
@@ -155,6 +157,7 @@ impl CanvasState {
         self.measures.clear();
         self.pen = None;
         self.text = None;
+        self.frame_rename = None;
         self.vedit = None;
         self.builder = None;
         // the page or the whole document may be different now
@@ -245,7 +248,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: ERect) {
     let eyedropping = app.props.picker.as_ref().is_some_and(|p| p.eyedrop);
     // An old version shown from the version history is read-only.
     let read_only = app.read_only();
-    if !eyedropping && !read_only && !proto::process(app, ui, rect, &resp) {
+    if app.canvas.frame_rename.is_none() && !eyedropping && !read_only && !proto::process(app, ui, rect, &resp) {
         interact::process(app, ui, rect, &resp);
     }
     crate::comments::pins::process(app, rect, &resp);
@@ -259,6 +262,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: ERect) {
     crate::panels::inspect::measure_overlay(app, ui, rect);
     crate::aiimg::ui::canvas_overlay(app, ui, rect);
     crate::dev::annot::overlay(app, ui, rect);
+    frame_rename::show(app, ui, rect);
     if resp.hovered() || !matches!(app.canvas.inter, Interaction::None) {
         if let Some(c) = app.canvas.cursor {
             ui.ctx().set_cursor_icon(c);

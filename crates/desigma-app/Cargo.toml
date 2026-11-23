@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [features]
 default = ["open-url"]
+design-app = ["desigma-library/design-app"]
 # Opens Present links in the system browser (after a confirmation).
 open-url = ["dep:open"]
 # Plays H.264 video fills in Present through Cisco's OpenH264 (C++ sources compiled by the

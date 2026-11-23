@@ -345,8 +345,15 @@ impl App {
     }
 
     pub fn paste(&mut self, system_text: Option<&str>) {
+        self.paste_at(system_text, None);
+    }
+
+    pub(crate) fn paste_at(&mut self, system_text: Option<&str>, at: Option<Vec2>) {
+        if self.read_only() {
+            return;
+        }
         // SVG markup on the system clipboard becomes layers.
-        if system_text.is_some_and(|t| clipboard::paste_svg(self, t)) {
+        if system_text.is_some_and(|t| clipboard::paste_svg(self, t, at)) {
             return;
         }
         let clip = system_text.and_then(clipboard::from_json).or_else(|| self.clip.clone());
@@ -355,20 +362,45 @@ impl App {
         let lists = clipboard::instantiate(&mut self.doc, &clip);
         let mut tx = Tx::new();
         let mut new_sel = Vec::new();
-        let off = theme::PASTE_OFFSET * self.paste_count as f32;
+        let offset = if let Some(point) = at {
+            let Some(inverse) = self.doc.world_transform(parent).invert() else { return };
+            let target = inverse.apply(point);
+            let origin = lists.iter().filter_map(|nodes| nodes.first())
+                .fold(None::<Vec2>, |origin, node| {
+                    let x = node.transform.tx;
+                    let y = node.transform.ty;
+                    Some(origin.map_or(v2(x, y), |point| v2(point.x.min(x), point.y.min(y))))
+                });
+            origin.map_or(Vec2::ZERO, |point| v2(target.x - point.x, target.y - point.y))
+        } else {
+            let offset = theme::PASTE_OFFSET * self.paste_count as f32;
+            v2(offset, offset)
+        };
         for mut nodes in lists {
             if let Some(root) = nodes.first_mut() {
-                root.transform.tx += off;
-                root.transform.ty += off;
-                new_sel.push(root.id);
+                root.transform.tx += offset.x;
+                root.transform.ty += offset.y;
             }
             let index = self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
-            let _ = tx.cmd(&mut self.doc, Command::Insert { parent, index, nodes });
+            let Some(root) = nodes.first().map(|node| node.id) else { continue };
+            if tx.cmd(&mut self.doc, Command::Insert { parent, index, nodes }).is_ok() {
+                new_sel.push(root);
+            }
         }
         layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
         self.paste_count += 1;
-        self.run_tx(tx);
-        self.selection = new_sel;
+        if self.run_tx(tx) {
+            self.selection = new_sel;
+            if cfg!(feature = "design-app") && self.canvas_rect.width() > 0.0 && self.canvas_rect.height() > 0.0 {
+                if let Some(bounds) = self.selection_bounds() {
+                    let top_left = self.view.to_screen(self.canvas_rect.min, v2(bounds.x, bounds.y));
+                    let bottom_right = self.view.to_screen(self.canvas_rect.min, v2(bounds.x + bounds.w, bounds.y + bounds.h));
+                    if !self.canvas_rect.intersects(egui::Rect::from_two_pos(top_left, bottom_right)) {
+                        self.zoom_on_content(self.view.zoom);
+                    }
+                }
+            }
+        }
     }
 
     // ------------------------------------------------------------ grouping
@@ -982,6 +1014,26 @@ mod tests {
         assert_eq!(app.doc.get(app.page).unwrap().children.len(), 4);
         app.undo();
         assert_eq!(app.doc.get(app.page).unwrap().children.len(), 3);
+    }
+
+    #[test]
+    fn clipboard_survives_document_switch_and_pastes_into_destination() {
+        let (mut app, ids) = app_with_rects();
+        app.select_only(ids[0]);
+        let name = app.doc.get(ids[0]).unwrap().name.clone();
+        app.copy_selection().unwrap();
+
+        let mut destination = Document::new("Destination");
+        let page = destination.add_page("Page 1");
+        app.replace_document(destination, None);
+        app.paste(None);
+
+        let children = &app.doc.get(page).unwrap().children;
+        assert_eq!(children.len(), 1);
+        assert_eq!(app.doc.get(children[0]).unwrap().name, name);
+        assert_eq!(app.selection, *children);
+        app.undo();
+        assert!(app.doc.get(page).unwrap().children.is_empty());
     }
 
     #[test]

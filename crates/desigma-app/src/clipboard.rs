@@ -1,6 +1,10 @@
 //! In-app clipboard: nodes (with subtrees) serialized as JSON, plus subtree cloning,
 //! and SVG markup pasted as text.
 
+pub(crate) mod external;
+#[cfg(target_os = "macos")]
+mod macos;
+
 use crate::app::App;
 use crate::edit::Tx;
 use crate::layout;
@@ -12,12 +16,12 @@ use std::collections::HashMap;
 /// appear centered in the viewport, as one undo step, selected. Returns whether
 /// the text was SVG (even if it failed to import, then a toast says why), so
 /// the caller can fall back to the in-app clipboard otherwise.
-pub fn paste_svg(app: &mut App, text: &str) -> bool {
+pub fn paste_svg(app: &mut App, text: &str, at: Option<Vec2>) -> bool {
     if !desigma_svg::looks_like_svg(text) {
         return false;
     }
     let view = app.canvas_rect;
-    let center = app.view.to_page(view.min, view.center());
+    let center = at.unwrap_or_else(|| app.view.to_page(view.min, view.center()));
     let parent = app.container_for_insert();
     if let Err(e) = place_svg(app, text, "svg", center, parent) {
         app.show_toast(e, true);

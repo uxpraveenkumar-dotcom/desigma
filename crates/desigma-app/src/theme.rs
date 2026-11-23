@@ -499,7 +499,7 @@ pub const PRESENT_MAX_SCALE: f32 = 4.0;
 // ---------------------------------------------------------------- app defaults
 pub const DEFAULT_WINDOW: (f32, f32) = (1600.0, 1088.0);
 pub const MIN_WINDOW: (f32, f32) = (900.0, 600.0);
-pub const APP_TITLE: &str = "desigma";
+pub const APP_TITLE: &str = if cfg!(feature = "design-app") { "Design App" } else { "desigma" };
 
 /// Display title for the window, tab strip and About: `DESIGMA_APP_TITLE` when it is
 /// set to a sane value, [`APP_TITLE`] otherwise. The persistence identity (the

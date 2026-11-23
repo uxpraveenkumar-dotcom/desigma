@@ -17,6 +17,8 @@
 //! recents, thumbnails, trash), `publish` (shared libraries) and `versions`
 //! (version history). Each adds `impl Library` blocks in its own file.
 
+pub mod access;
+pub mod workspace;
 mod publish;
 mod store;
 mod versions;
@@ -26,6 +28,9 @@ pub use store::*;
 pub use versions::*;
 
 use std::path::{Path, PathBuf};
+
+/// Directory namespace for this build’s application data.
+pub const APP_DATA_DIR: &str = if cfg!(feature = "design-app") { "Design App" } else { "desigma" };
 
 /// Readable copies of designs opened from outside the library while the agent bridge is on.
 /// The MCP server lists these beside the library catalog so an assistant can open them.

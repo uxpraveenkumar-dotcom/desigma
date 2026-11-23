@@ -22,6 +22,8 @@ mod find;
 mod fonts;
 mod history;
 mod home;
+mod desktop;
+mod workspace;
 mod i18n;
 mod icons;
 mod instance;
@@ -33,7 +35,6 @@ mod lint;
 mod loopback;
 #[cfg(target_os = "macos")]
 mod macos;
-mod mcp_link;
 mod motion;
 mod ops;
 mod panels;
@@ -65,7 +66,7 @@ pub const VERSION: &str = match option_env!("DESIGMA_VERSION") {
     None => env!("CARGO_PKG_VERSION"),
 };
 /// Only release builds carry a stamped version; builds from source never look for updates.
-pub const RELEASE_BUILD: bool = option_env!("DESIGMA_VERSION").is_some();
+pub const RELEASE_BUILD: bool = !cfg!(feature = "design-app") && option_env!("DESIGMA_VERSION").is_some();
 
 /// The app icon (256 px PNG embedded at build time) for the taskbar, Dock and alt-tab. Every window
 /// desigma opens (including Present and "open in new window" processes) starts through `main`, so
@@ -74,9 +75,11 @@ fn window_icon() -> Option<egui::IconData> {
     // macOS shows the window icon in the Dock when desigma runs as a bare binary (cargo run), where
     // the squircle needs the same transparent margin the .icns has; elsewhere the edge-to-edge art
     // fills title bars and taskbars as intended.
-    #[cfg(target_os = "macos")]
+    #[cfg(feature = "design-app")]
+    const PNG: &[u8] = include_bytes!("../../../packaging/design-app/icon.png");
+    #[cfg(all(target_os = "macos", not(feature = "design-app")))]
     const PNG: &[u8] = include_bytes!("../../../assets/icon/desigma.iconset/icon_256x256.png");
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", feature = "design-app")))]
     const PNG: &[u8] = include_bytes!("../../../assets/icon/png/icon_256.png");
     let img = image::load_from_memory_with_format(PNG, image::ImageFormat::Png).ok()?.into_rgba8();
     let (width, height) = img.dimensions();
